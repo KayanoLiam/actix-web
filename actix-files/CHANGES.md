@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Use the default handler for directory requests when no index file or directory listing is configured.
+
 ## 0.7.0
 
 - Remove the experimental `experimental-io-uring` crate feature and its implementation, including the `NamedFile::open_async()` method.

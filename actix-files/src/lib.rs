@@ -916,6 +916,7 @@ mod tests {
         let first_dir = tempfile::tempdir().unwrap();
         let second_dir = tempfile::tempdir().unwrap();
 
+        fs::create_dir(first_dir.path().join("fallback.txt")).unwrap();
         fs::write(second_dir.path().join("fallback.txt"), "fallback").unwrap();
 
         let service = Files::new("/", vec![first_dir.path(), second_dir.path()])
@@ -932,6 +933,14 @@ mod tests {
         assert_eq!(test::read_body(resp).await, Bytes::from_static(b"fallback"));
 
         let req = TestRequest::with_uri("/missing.txt").to_srv_request();
+        let resp = test::call_service(&service, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(
+            test::read_body(resp).await,
+            Bytes::from_static(b"default content")
+        );
+
+        let req = TestRequest::with_uri("/").to_srv_request();
         let resp = test::call_service(&service, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
@@ -1075,6 +1084,72 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let bytes = test::read_body(resp).await;
         assert_eq!(bytes, web::Bytes::from_static(b"default content"));
+    }
+
+    #[actix_rt::test]
+    async fn test_directory_default_handler() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("nested")).unwrap();
+
+        let service = test::init_service(
+            App::new()
+                .service(Files::new("/files", dir.path()).default_handler(
+                    |req: ServiceRequest| async {
+                        let uri = req.uri().to_string();
+                        Ok(req.into_response(HttpResponse::Ok().body(uri)))
+                    },
+                ))
+                .default_service(web::to(HttpResponse::NotFound)),
+        )
+        .await;
+
+        for uri in [
+            "/files",
+            "/files/",
+            "/files/nested",
+            "/files/nested/?page=1",
+        ] {
+            let req = TestRequest::with_uri(uri).to_request();
+            let resp = test::call_service(&service, req).await;
+            assert_eq!(resp.status(), StatusCode::OK, "request to {uri}");
+            assert_eq!(test::read_body(resp).await, uri);
+        }
+    }
+
+    #[actix_rt::test]
+    async fn test_directory_app_default_service() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = test::init_service(
+            App::new()
+                .service(Files::new("/files", dir.path()))
+                .default_service(web::to(|| async {
+                    HttpResponse::Ok().body("default content")
+                })),
+        )
+        .await;
+
+        let req = TestRequest::with_uri("/files/").to_request();
+        let resp = test::call_service(&service, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(test::read_body(resp).await, "default content");
+    }
+
+    #[actix_rt::test]
+    async fn test_directory_without_default_handler() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = Files::new("/", dir.path()).new_service(()).await.unwrap();
+
+        let req = TestRequest::with_uri("/").to_srv_request();
+        let resp = test::call_service(&service, req).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        assert_eq!(
+            resp.response().error().unwrap().as_error::<FilesError>(),
+            Some(&FilesError::IsDirectory)
+        );
+        assert_eq!(
+            test::read_body(resp).await,
+            "unable to render directory without index file"
+        );
     }
 
     #[actix_rt::test]

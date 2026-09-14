@@ -449,6 +449,9 @@ impl Files {
 
     /// Sets default handler which is used when no matched file could be found.
     ///
+    /// This includes requests for directories when neither an index file nor a directory listing
+    /// is configured.
+    ///
     /// # Examples
     /// Setting a fallback static file handler:
     /// ```

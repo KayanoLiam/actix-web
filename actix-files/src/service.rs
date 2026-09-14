@@ -58,7 +58,7 @@ impl fmt::Debug for FilesServiceInner {
 impl FilesService {
     async fn handle_err(
         &self,
-        err: io::Error,
+        err: impl Into<Error> + fmt::Display,
         req: ServiceRequest,
     ) -> Result<ServiceResponse, Error> {
         log::debug!("error handling {}: {}", req.path(), err);
@@ -280,10 +280,7 @@ impl Service<ServiceRequest> for FilesService {
             }
 
             if found_unrenderable_dir {
-                return Ok(ServiceResponse::from_err(
-                    FilesError::IsDirectory,
-                    req.into_parts().0,
-                ));
+                return this.handle_err(FilesError::IsDirectory, req).await;
             }
 
             let err = last_miss
